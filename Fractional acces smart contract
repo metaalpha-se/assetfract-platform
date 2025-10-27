@@ -1,0 +1,287 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
+import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+
+// Main NFT representing the physical asset
+contract FractionalAssetNFT is ERC721, Ownable, ReentrancyGuard {
+    uint256 private _tokenIdCounter;
+    
+    struct Asset {
+        string name;
+        string description;
+        string location;
+        string assetType; // "property", "vehicle", "art"
+        uint256 totalValue; // in wei
+        uint256 totalFractions;
+        address fractionTokenAddress;
+        string imageURI;
+        string documentURI; // IPFS link to legal documents
+        bool isActive;
+        uint256 createdAt;
+    }
+    
+    mapping(uint256 => Asset) public assets;
+    mapping(address => bool) public verifiedAssetOwners;
+    
+    event AssetCreated(uint256 indexed tokenId, address indexed owner, string name, uint256 totalValue);
+    event AssetFractionalized(uint256 indexed tokenId, address fractionToken, uint256 totalFractions);
+    
+    constructor() ERC721("FractionalAsset", "FASSET") Ownable(msg.sender) {}
+    
+    function createAsset(
+        string memory name,
+        string memory description,
+        string memory location,
+        string memory assetType,
+        uint256 totalValue,
+        string memory imageURI,
+        string memory documentURI
+    ) external returns (uint256) {
+        require(verifiedAssetOwners[msg.sender] || owner() == msg.sender, "Not verified");
+        
+        uint256 tokenId = _tokenIdCounter++;
+        _safeMint(msg.sender, tokenId);
+        
+        assets[tokenId] = Asset({
+            name: name,
+            description: description,
+            location: location,
+            assetType: assetType,
+            totalValue: totalValue,
+            totalFractions: 0,
+            fractionTokenAddress: address(0),
+            imageURI: imageURI,
+            documentURI: documentURI,
+            isActive: true,
+            createdAt: block.timestamp
+        });
+        
+        emit AssetCreated(tokenId, msg.sender, name, totalValue);
+        return tokenId;
+    }
+    
+    function fractionalizeAsset(uint256 tokenId, uint256 totalFractions) external {
+        require(ownerOf(tokenId) == msg.sender, "Not asset owner");
+        require(assets[tokenId].fractionTokenAddress == address(0), "Already fractionalized");
+        require(totalFractions > 0 && totalFractions <= 1000000, "Invalid fraction count");
+        
+        // Deploy new ERC20 token for fractions
+        FractionToken fractionToken = new FractionToken(
+            assets[tokenId].name,
+            string(abi.encodePacked("F-", assets[tokenId].name)),
+            totalFractions,
+            msg.sender
+        );
+        
+        assets[tokenId].fractionTokenAddress = address(fractionToken);
+        assets[tokenId].totalFractions = totalFractions;
+        
+        emit AssetFractionalized(tokenId, address(fractionToken), totalFractions);
+    }
+    
+    function verifyAssetOwner(address owner, bool status) external onlyOwner {
+        verifiedAssetOwners[owner] = status;
+    }
+    
+    function getAsset(uint256 tokenId) external view returns (Asset memory) {
+        return assets[tokenId];
+    }
+    
+    function tokenURI(uint256 tokenId) public view override returns (string memory) {
+        return assets[tokenId].imageURI;
+    }
+}
+
+// ERC20 token representing fractions of the asset
+contract FractionToken is ERC20, Ownable, ReentrancyGuard {
+    uint256 public constant PRICE_PRECISION = 1e18;
+    uint256 public fractionPrice;
+    uint256 public totalRevenue;
+    
+    mapping(address => uint256) public lastClaimedRevenue;
+    
+    event FractionsPurchased(address indexed buyer, uint256 amount, uint256 cost);
+    event FractionsSold(address indexed seller, uint256 amount, uint256 payout);
+    event RevenueDistributed(uint256 amount);
+    event RevenueClaimed(address indexed holder, uint256 amount);
+    
+    constructor(
+        string memory name,
+        string memory symbol,
+        uint256 totalFractions,
+        address assetOwner
+    ) ERC20(name, symbol) Ownable(assetOwner) {
+        _mint(assetOwner, totalFractions * PRICE_PRECISION);
+    }
+    
+    function setFractionPrice(uint256 price) external onlyOwner {
+        fractionPrice = price;
+    }
+    
+    function buyFractions(uint256 amount) external payable nonReentrant {
+        require(fractionPrice > 0, "Price not set");
+        uint256 cost = (amount * fractionPrice) / PRICE_PRECISION;
+        require(msg.value >= cost, "Insufficient payment");
+        require(balanceOf(owner()) >= amount, "Not enough fractions available");
+        
+        _transfer(owner(), msg.sender, amount);
+        
+        if (msg.value > cost) {
+            payable(msg.sender).transfer(msg.value - cost);
+        }
+        
+        emit FractionsPurchased(msg.sender, amount, cost);
+    }
+    
+    function sellFractions(uint256 amount) external nonReentrant {
+        require(balanceOf(msg.sender) >= amount, "Insufficient balance");
+        require(fractionPrice > 0, "Price not set");
+        
+        uint256 payout = (amount * fractionPrice) / PRICE_PRECISION;
+        require(address(this).balance >= payout, "Insufficient contract balance");
+        
+        _transfer(msg.sender, owner(), amount);
+        payable(msg.sender).transfer(payout);
+        
+        emit FractionsSold(msg.sender, amount, payout);
+    }
+    
+    // Distribute revenue from rent/profit
+    function distributeRevenue() external payable onlyOwner {
+        require(msg.value > 0, "No revenue to distribute");
+        totalRevenue += msg.value;
+        emit RevenueDistributed(msg.value);
+    }
+    
+    // Claim proportional revenue based on holdings
+    function claimRevenue() external nonReentrant {
+        uint256 holderBalance = balanceOf(msg.sender);
+        require(holderBalance > 0, "No fractions held");
+        
+        uint256 totalSupply = totalSupply();
+        uint256 unclaimedRevenue = totalRevenue - lastClaimedRevenue[msg.sender];
+        uint256 holderShare = (unclaimedRevenue * holderBalance) / totalSupply;
+        
+        require(holderShare > 0, "No revenue to claim");
+        require(address(this).balance >= holderShare, "Insufficient balance");
+        
+        lastClaimedRevenue[msg.sender] = totalRevenue;
+        payable(msg.sender).transfer(holderShare);
+        
+        emit RevenueClaimed(msg.sender, holderShare);
+    }
+    
+    function getClaimableRevenue(address holder) external view returns (uint256) {
+        uint256 holderBalance = balanceOf(holder);
+        if (holderBalance == 0) return 0;
+        
+        uint256 totalSupply = totalSupply();
+        uint256 unclaimedRevenue = totalRevenue - lastClaimedRevenue[holder];
+        return (unclaimedRevenue * holderBalance) / totalSupply;
+    }
+    
+    receive() external payable {}
+}
+
+// Marketplace for trading fractions
+contract FractionMarketplace is ReentrancyGuard, Ownable {
+    struct Listing {
+        address seller;
+        address fractionToken;
+        uint256 amount;
+        uint256 pricePerFraction;
+        bool isActive;
+        uint256 createdAt;
+    }
+    
+    uint256 private _listingIdCounter;
+    mapping(uint256 => Listing) public listings;
+    uint256 public platformFeePercent = 250; // 2.5%
+    
+    event ListingCreated(uint256 indexed listingId, address indexed seller, address token, uint256 amount, uint256 price);
+    event ListingSold(uint256 indexed listingId, address indexed buyer, uint256 amount);
+    event ListingCancelled(uint256 indexed listingId);
+    
+    constructor() Ownable(msg.sender) {}
+    
+    function createListing(
+        address fractionToken,
+        uint256 amount,
+        uint256 pricePerFraction
+    ) external returns (uint256) {
+        require(amount > 0, "Invalid amount");
+        require(pricePerFraction > 0, "Invalid price");
+        
+        FractionToken token = FractionToken(fractionToken);
+        require(token.balanceOf(msg.sender) >= amount, "Insufficient balance");
+        
+        uint256 listingId = _listingIdCounter++;
+        
+        listings[listingId] = Listing({
+            seller: msg.sender,
+            fractionToken: fractionToken,
+            amount: amount,
+            pricePerFraction: pricePerFraction,
+            isActive: true,
+            createdAt: block.timestamp
+        });
+        
+        // Transfer fractions to marketplace
+        token.transferFrom(msg.sender, address(this), amount);
+        
+        emit ListingCreated(listingId, msg.sender, fractionToken, amount, pricePerFraction);
+        return listingId;
+    }
+    
+    function buyListing(uint256 listingId) external payable nonReentrant {
+        Listing storage listing = listings[listingId];
+        require(listing.isActive, "Listing not active");
+        
+        uint256 totalCost = listing.amount * listing.pricePerFraction / 1e18;
+        require(msg.value >= totalCost, "Insufficient payment");
+        
+        uint256 platformFee = (totalCost * platformFeePercent) / 10000;
+        uint256 sellerAmount = totalCost - platformFee;
+        
+        listing.isActive = false;
+        
+        // Transfer fractions to buyer
+        FractionToken(listing.fractionToken).transfer(msg.sender, listing.amount);
+        
+        // Pay seller
+        payable(listing.seller).transfer(sellerAmount);
+        
+        // Refund excess
+        if (msg.value > totalCost) {
+            payable(msg.sender).transfer(msg.value - totalCost);
+        }
+        
+        emit ListingSold(listingId, msg.sender, listing.amount);
+    }
+    
+    function cancelListing(uint256 listingId) external {
+        Listing storage listing = listings[listingId];
+        require(listing.seller == msg.sender, "Not seller");
+        require(listing.isActive, "Listing not active");
+        
+        listing.isActive = false;
+        
+        // Return fractions to seller
+        FractionToken(listing.fractionToken).transfer(msg.sender, listing.amount);
+        
+        emit ListingCancelled(listingId);
+    }
+    
+    function setPlatformFee(uint256 feePercent) external onlyOwner {
+        require(feePercent <= 1000, "Fee too high"); // Max 10%
+        platformFeePercent = feePercent;
+    }
+    
+    function withdrawFees() external onlyOwner {
+        payable(owner()).transfer(address(this).balance);
+    }
+}

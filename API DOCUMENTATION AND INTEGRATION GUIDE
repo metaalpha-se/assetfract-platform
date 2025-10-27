@@ -1,0 +1,883 @@
+# 📚 API Documentation & Integration Guide
+
+Dokumentasi lengkap untuk mengintegrasikan AssetFract platform.
+
+---
+
+## 🎯 Quick Start
+
+```javascript
+import { 
+  connectWallet, 
+  createAsset, 
+  buyFractions 
+} from './contractUtils';
+
+// 1. Connect wallet
+const address = await connectWallet();
+
+// 2. Create asset
+const asset = await createAsset({
+  name: "My Property",
+  description: "Beautiful apartment",
+  location: "Jakarta",
+  assetType: "property",
+  totalValue: 1000,
+  imageURI: "ipfs://...",
+  documentURI: "ipfs://..."
+});
+
+// 3. Buy fractions
+await buyFractions(fractionTokenAddress, 100);
+```
+
+---
+
+## 📖 Smart Contract API Reference
+
+### FractionalAssetNFT Contract
+
+#### **createAsset()**
+Membuat aset baru sebagai NFT.
+
+```solidity
+function createAsset(
+    string memory name,
+    string memory description,
+    string memory location,
+    string memory assetType,
+    uint256 totalValue,
+    string memory imageURI,
+    string memory documentURI
+) external returns (uint256 tokenId)
+```
+
+**Parameters:**
+- `name`: Nama aset (max 100 chars)
+- `description`: Deskripsi aset (max 500 chars)
+- `location`: Lokasi aset (format: "Kota, Provinsi")
+- `assetType`: Tipe aset ("property", "vehicle", "art", dll)
+- `totalValue`: Total nilai aset dalam wei
+- `imageURI`: IPFS URI untuk gambar aset
+- `documentURI`: IPFS URI untuk dokumen legal
+
+**Returns:**
+- `tokenId`: ID unik dari asset NFT
+
+**Events:**
+```solidity
+event AssetCreated(
+    uint256 indexed tokenId, 
+    address indexed owner, 
+    string name, 
+    uint256 totalValue
+);
+```
+
+**Requirements:**
+- Caller harus verified asset owner atau contract owner
+- Semua parameter harus valid (non-empty strings)
+- totalValue > 0
+
+**Example:**
+```javascript
+const tx = await assetNFT.createAsset(
+  "Apartemen Sudirman",
+  "Apartemen 2BR di Jakarta Selatan",
+  "Jakarta Selatan, DKI Jakarta",
+  "property",
+  ethers.parseEther("100"), // 100 BNB
+  "ipfs://QmXxx...",
+  "ipfs://QmYyy..."
+);
+await tx.wait();
+```
+
+---
+
+#### **fractionalizeAsset()**
+Memfraksionalisasi aset menjadi ERC20 tokens.
+
+```solidity
+function fractionalizeAsset(
+    uint256 tokenId, 
+    uint256 totalFractions
+) external
+```
+
+**Parameters:**
+- `tokenId`: ID asset yang akan difraksionalisasi
+- `totalFractions`: Jumlah total fraksi (1 - 1,000,000)
+
+**Events:**
+```solidity
+event AssetFractionalized(
+    uint256 indexed tokenId, 
+    address fractionToken, 
+    uint256 totalFractions
+);
+```
+
+**Requirements:**
+- Caller harus owner dari NFT
+- Asset belum pernah difraksionalisasi
+- totalFractions dalam range valid
+
+**Note:** Function ini akan men-deploy kontrak ERC20 baru untuk fractions.
+
+**Example:**
+```javascript
+const tx = await assetNFT.fractionalizeAsset(0, 10000);
+await tx.wait();
+
+// Get fraction token address
+const asset = await assetNFT.getAsset(0);
+console.log("Fraction Token:", asset.fractionTokenAddress);
+```
+
+---
+
+#### **getAsset()**
+Mengambil detail aset.
+
+```solidity
+function getAsset(uint256 tokenId) external view returns (Asset memory)
+```
+
+**Returns:**
+```solidity
+struct Asset {
+    string name;
+    string description;
+    string location;
+    string assetType;
+    uint256 totalValue;
+    uint256 totalFractions;
+    address fractionTokenAddress;
+    string imageURI;
+    string documentURI;
+    bool isActive;
+    uint256 createdAt;
+}
+```
+
+**Example:**
+```javascript
+const asset = await assetNFT.getAsset(0);
+console.log("Asset Name:", asset.name);
+console.log("Total Value:", ethers.formatEther(asset.totalValue));
+console.log("Fraction Token:", asset.fractionTokenAddress);
+```
+
+---
+
+#### **verifyAssetOwner()**
+Memverifikasi owner untuk bisa membuat aset (admin only).
+
+```solidity
+function verifyAssetOwner(address owner, bool status) external onlyOwner
+```
+
+**Example:**
+```javascript
+await assetNFT.verifyAssetOwner(userAddress, true);
+```
+
+---
+
+### FractionToken Contract
+
+#### **buyFractions()**
+Membeli fraksi aset.
+
+```solidity
+function buyFractions(uint256 amount) external payable
+```
+
+**Parameters:**
+- `amount`: Jumlah fraksi (dalam wei format, e.g., parseEther("100"))
+
+**Requirements:**
+- msg.value >= (amount * fractionPrice / 1e18)
+- Fraction price sudah di-set
+- Cukup fraksi tersedia
+
+**Example:**
+```javascript
+const price = await fractionToken.fractionPrice();
+const cost = (price * BigInt(100)) / ethers.parseEther("1");
+
+const tx = await fractionToken.buyFractions(
+  ethers.parseEther("100"),
+  { value: cost }
+);
+await tx.wait();
+```
+
+---
+
+#### **sellFractions()**
+Menjual fraksi kembali ke owner.
+
+```solidity
+function sellFractions(uint256 amount) external
+```
+
+**Requirements:**
+- Caller memiliki cukup fractions
+- Contract memiliki cukup BNB untuk payout
+
+**Example:**
+```javascript
+const tx = await fractionToken.sellFractions(
+  ethers.parseEther("50")
+);
+await tx.wait();
+```
+
+---
+
+#### **distributeRevenue()**
+Mendistribusikan revenue ke semua pemegang fraksi (owner only).
+
+```solidity
+function distributeRevenue() external payable onlyOwner
+```
+
+**Example:**
+```javascript
+// Distribute 10 BNB as revenue
+const tx = await fractionToken.distributeRevenue({
+  value: ethers.parseEther("10")
+});
+await tx.wait();
+```
+
+---
+
+#### **claimRevenue()**
+Claim revenue yang belum diambil.
+
+```solidity
+function claimRevenue() external
+```
+
+**Formula:**
+```
+claimable = (totalRevenue - lastClaimed[user]) * userBalance / totalSupply
+```
+
+**Example:**
+```javascript
+// Check claimable first
+const claimable = await fractionToken.getClaimableRevenue(userAddress);
+console.log("Claimable:", ethers.formatEther(claimable), "BNB");
+
+// Claim
+if (claimable > 0n) {
+  const tx = await fractionToken.claimRevenue();
+  await tx.wait();
+}
+```
+
+---
+
+#### **setFractionPrice()**
+Set harga per fraksi (owner only).
+
+```solidity
+function setFractionPrice(uint256 price) external onlyOwner
+```
+
+**Example:**
+```javascript
+// Set price to 0.001 BNB per fraction
+await fractionToken.setFractionPrice(ethers.parseEther("0.001"));
+```
+
+---
+
+### FractionMarketplace Contract
+
+#### **createListing()**
+Membuat listing untuk jual fraksi.
+
+```solidity
+function createListing(
+    address fractionToken,
+    uint256 amount,
+    uint256 pricePerFraction
+) external returns (uint256 listingId)
+```
+
+**Requirements:**
+- Approve marketplace terlebih dahulu
+- Memiliki cukup fractions
+
+**Example:**
+```javascript
+// 1. Approve marketplace
+const approveTx = await fractionToken.approve(
+  marketplaceAddress,
+  ethers.parseEther("100")
+);
+await approveTx.wait();
+
+// 2. Create listing
+const tx = await marketplace.createListing(
+  fractionTokenAddress,
+  ethers.parseEther("100"),
+  ethers.parseEther("0.0012") // price per fraction
+);
+const receipt = await tx.wait();
+
+// Get listing ID from event
+const listingId = receipt.logs[0].args.listingId;
+```
+
+---
+
+#### **buyListing()**
+Membeli listing dari marketplace.
+
+```solidity
+function buyListing(uint256 listingId) external payable
+```
+
+**Example:**
+```javascript
+const listing = await marketplace.listings(listingId);
+const totalCost = (listing.amount * listing.pricePerFraction) / ethers.parseEther("1");
+
+const tx = await marketplace.buyListing(listingId, {
+  value: totalCost
+});
+await tx.wait();
+```
+
+---
+
+#### **cancelListing()**
+Membatalkan listing (seller only).
+
+```solidity
+function cancelListing(uint256 listingId) external
+```
+
+**Example:**
+```javascript
+await marketplace.cancelListing(listingId);
+```
+
+---
+
+## 🔗 JavaScript/TypeScript Integration
+
+### Complete Integration Example
+
+```typescript
+// config.ts
+import { ethers } from 'ethers';
+
+export const config = {
+  contracts: {
+    assetNFT: "0x...",
+    marketplace: "0x..."
+  },
+  network: {
+    chainId: 97, // BSC Testnet
+    rpcUrl: "https://data-seed-prebsc-1-s1.binance.org:8545"
+  }
+};
+
+// assetService.ts
+import { ethers } from 'ethers';
+import { config } from './config';
+import AssetNFTABI from './abis/AssetNFT.json';
+
+export class AssetService {
+  private provider: ethers.BrowserProvider;
+  private contract: ethers.Contract;
+
+  constructor() {
+    this.provider = new ethers.BrowserProvider(window.ethereum);
+  }
+
+  async init() {
+    const signer = await this.provider.getSigner();
+    this.contract = new ethers.Contract(
+      config.contracts.assetNFT,
+      AssetNFTABI,
+      signer
+    );
+  }
+
+  async createAsset(params: CreateAssetParams) {
+    try {
+      const tx = await this.contract.createAsset(
+        params.name,
+        params.description,
+        params.location,
+        params.assetType,
+        ethers.parseEther(params.totalValue.toString()),
+        params.imageURI,
+        params.documentURI
+      );
+
+      const receipt = await tx.wait();
+      
+      // Extract tokenId from event
+      const event = receipt.logs.find(log => 
+        log.topics[0] === this.contract.interface.getEvent('AssetCreated').topicHash
+      );
+      
+      const decoded = this.contract.interface.parseLog(event);
+      return {
+        success: true,
+        tokenId: decoded.args.tokenId.toString(),
+        txHash: receipt.hash
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  }
+
+  async getAsset(tokenId: number) {
+    const asset = await this.contract.getAsset(tokenId);
+    return {
+      name: asset.name,
+      description: asset.description,
+      location: asset.location,
+      assetType: asset.assetType,
+      totalValue: ethers.formatEther(asset.totalValue),
+      totalFractions: asset.totalFractions.toString(),
+      fractionTokenAddress: asset.fractionTokenAddress,
+      imageURI: asset.imageURI,
+      documentURI: asset.documentURI,
+      isActive: asset.isActive,
+      createdAt: new Date(Number(asset.createdAt) * 1000)
+    };
+  }
+
+  async getAllAssets(): Promise<Asset[]> {
+    const assets: Asset[] = [];
+    let tokenId = 0;
+
+    while (true) {
+      try {
+        const asset = await this.getAsset(tokenId);
+        if (asset.isActive) {
+          assets.push({ ...asset, tokenId });
+        }
+        tokenId++;
+      } catch {
+        break;
+      }
+    }
+
+    return assets;
+  }
+}
+
+// Usage
+const service = new AssetService();
+await service.init();
+
+const result = await service.createAsset({
+  name: "Apartemen Jakarta",
+  description: "2BR apartment",
+  location: "Jakarta Selatan",
+  assetType: "property",
+  totalValue: 100,
+  imageURI: "ipfs://QmXxx...",
+  documentURI: "ipfs://QmYyy..."
+});
+
+console.log("Asset created:", result.tokenId);
+```
+
+---
+
+## 🎨 React Hooks Integration
+
+### Custom Hooks untuk AssetFract
+
+```typescript
+// useAsset.ts
+import { useState, useEffect } from 'react';
+import { getAssetDetails, getAssetStats } from './contractUtils';
+
+export const useAsset = (tokenId: number) => {
+  const [asset, setAsset] = useState(null);
+  const [stats, setStats] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    loadAsset();
+  }, [tokenId]);
+
+  const loadAsset = async () => {
+    try {
+      setLoading(true);
+      const assetData = await getAssetDetails(tokenId);
+      setAsset(assetData);
+
+      if (assetData?.fractionTokenAddress) {
+        const statsData = await getAssetStats(assetData.fractionTokenAddress);
+        setStats(statsData);
+      }
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return { asset, stats, loading, error, refresh: loadAsset };
+};
+
+// useWallet.ts
+import { useState, useEffect } from 'react';
+import { connectWallet, switchToBSC } from './contractUtils';
+
+export const useWallet = () => {
+  const [account, setAccount] = useState('');
+  const [isConnected, setIsConnected] = useState(false);
+  const [chainId, setChainId] = useState(null);
+
+  useEffect(() => {
+    checkConnection();
+    
+    if (window.ethereum) {
+      window.ethereum.on('accountsChanged', handleAccountsChanged);
+      window.ethereum.on('chainChanged', handleChainChanged);
+    }
+
+    return () => {
+      if (window.ethereum) {
+        window.ethereum.removeListener('accountsChanged', handleAccountsChanged);
+        window.ethereum.removeListener('chainChanged', handleChainChanged);
+      }
+    };
+  }, []);
+
+  const checkConnection = async () => {
+    if (typeof window.ethereum !== 'undefined') {
+      const accounts = await window.ethereum.request({ method: 'eth_accounts' });
+      if (accounts.length > 0) {
+        setAccount(accounts[0]);
+        setIsConnected(true);
+        const chain = await window.ethereum.request({ method: 'eth_chainId' });
+        setChainId(chain);
+      }
+    }
+  };
+
+  const handleAccountsChanged = (accounts) => {
+    if (accounts.length > 0) {
+      setAccount(accounts[0]);
+      setIsConnected(true);
+    } else {
+      setAccount('');
+      setIsConnected(false);
+    }
+  };
+
+  const handleChainChanged = (newChainId) => {
+    setChainId(newChainId);
+    window.location.reload();
+  };
+
+  const connect = async () => {
+    const address = await connectWallet();
+    if (address) {
+      setAccount(address);
+      setIsConnected(true);
+    }
+  };
+
+  const disconnect = () => {
+    setAccount('');
+    setIsConnected(false);
+  };
+
+  const switchNetwork = async () => {
+    await switchToBSC(true); // true = testnet
+  };
+
+  return {
+    account,
+    isConnected,
+    chainId,
+    connect,
+    disconnect,
+    switchNetwork
+  };
+};
+
+// useUserPortfolio.ts
+import { useState, useEffect } from 'react';
+import { getUserPortfolio } from './contractUtils';
+
+export const useUserPortfolio = (address: string) => {
+  const [portfolio, setPortfolio] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [totalValue, setTotalValue] = useState(0);
+
+  useEffect(() => {
+    if (address) {
+      loadPortfolio();
+    }
+  }, [address]);
+
+  const loadPortfolio = async () => {
+    try {
+      setLoading(true);
+      const data = await getUserPortfolio(address);
+      setPortfolio(data);
+
+      // Calculate total portfolio value
+      const total = data.reduce((sum, item) => {
+        return sum + (parseFloat(item.userBalance) * parseFloat(item.fractionPrice || 0));
+      }, 0);
+      setTotalValue(total);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return { portfolio, loading, totalValue, refresh: loadPortfolio };
+};
+
+// Usage in component
+function MyComponent() {
+  const { account, isConnected, connect } = useWallet();
+  const { asset, stats, loading } = useAsset(1);
+  const { portfolio, totalValue } = useUserPortfolio(account);
+
+  if (!isConnected) {
+    return <button onClick={connect}>Connect Wallet</button>;
+  }
+
+  return (
+    <div>
+      <h1>{asset?.name}</h1>
+      <p>Your Portfolio Value: {totalValue} BNB</p>
+    </div>
+  );
+}
+```
+
+---
+
+## 🌐 REST API (Backend Integration)
+
+Untuk aplikasi yang memerlukan backend, berikut contoh REST API:
+
+### Express.js Backend Example
+
+```javascript
+// server.js
+const express = require('express');
+const { ethers } = require('ethers');
+const cors = require('cors');
+
+const app = express();
+app.use(cors());
+app.use(express.json());
+
+// Setup provider
+const provider = new ethers.JsonRpcProvider(
+  'https://data-seed-prebsc-1-s1.binance.org:8545'
+);
+
+const assetContract = new ethers.Contract(
+  process.env.ASSET_NFT_ADDRESS,
+  AssetNFTABI,
+  provider
+);
+
+// GET /api/assets
+app.get('/api/assets', async (req, res) => {
+  try {
+    const { page = 1, limit = 10, type } = req.query;
+    
+    const assets = [];
+    let tokenId = 0;
+    let count = 0;
+    
+    while (count < limit) {
+      try {
+        const asset = await assetContract.getAsset(tokenId);
+        
+        if (asset.isActive) {
+          // Filter by type if specified
+          if (!type || asset.assetType === type) {
+            assets.push({
+              tokenId,
+              name: asset.name,
+              description: asset.description,
+              location: asset.location,
+              assetType: asset.assetType,
+              totalValue: ethers.formatEther(asset.totalValue),
+              totalFractions: asset.totalFractions.toString(),
+              fractionTokenAddress: asset.fractionTokenAddress,
+              imageURI: asset.imageURI
+            });
+            count++;
+          }
+        }
+        
+        tokenId++;
+      } catch {
+        break;
+      }
+    }
+    
+    res.json({
+      success: true,
+      data: assets,
+      pagination: {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total: assets.length
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// GET /api/assets/:tokenId
+app.get('/api/assets/:tokenId', async (req, res) => {
+  try {
+    const { tokenId } = req.params;
+    const asset = await assetContract.getAsset(tokenId);
+    
+    let stats = null;
+    if (asset.fractionTokenAddress !== ethers.ZeroAddress) {
+      const fractionToken = new ethers.Contract(
+        asset.fractionTokenAddress,
+        FractionTokenABI,
+        provider
+      );
+      
+      const [totalSupply, fractionPrice, totalRevenue] = await Promise.all([
+        fractionToken.totalSupply(),
+        fractionToken.fractionPrice(),
+        fractionToken.totalRevenue()
+      ]);
+      
+      stats = {
+        totalSupply: ethers.formatEther(totalSupply),
+        fractionPrice: ethers.formatEther(fractionPrice),
+        totalRevenue: ethers.formatEther(totalRevenue)
+      };
+    }
+    
+    res.json({
+      success: true,
+      data: {
+        tokenId,
+        name: asset.name,
+        description: asset.description,
+        location: asset.location,
+        assetType: asset.assetType,
+        totalValue: ethers.formatEther(asset.totalValue),
+        totalFractions: asset.totalFractions.toString(),
+        fractionTokenAddress: asset.fractionTokenAddress,
+        imageURI: asset.imageURI,
+        documentURI: asset.documentURI,
+        stats
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// GET /api/portfolio/:address
+app.get('/api/portfolio/:address', async (req, res) => {
+  try {
+    const { address } = req.params;
+    
+    // Get all assets and check user balance
+    const portfolio = [];
+    let tokenId = 0;
+    
+    while (true) {
+      try {
+        const asset = await assetContract.getAsset(tokenId);
+        
+        if (asset.fractionTokenAddress !== ethers.ZeroAddress) {
+          const fractionToken = new ethers.Contract(
+            asset.fractionTokenAddress,
+            FractionTokenABI,
+            provider
+          );
+          
+          const balance = await fractionToken.balanceOf(address);
+          
+          if (balance > 0n) {
+            const [claimable, fractionPrice] = await Promise.all([
+              fractionToken.getClaimableRevenue(address),
+              fractionToken.fractionPrice()
+            ]);
+            
+            portfolio.push({
+              tokenId,
+              name: asset.name,
+              assetType: asset.assetType,
+              balance: ethers.formatEther(balance),
+              claimableRevenue: ethers.formatEther(claimable),
+              currentValue: ethers.formatEther(balance * fractionPrice / ethers.parseEther("1"))
+            });
+          }
+        }
+        
+        tokenId++;
+      } catch {
+        break;
+      }
+    }
+    
+    res.json({
+      success: true,
+      data: {
+        address,
+        portfolio,
+        totalAssets: portfolio.length
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// GET /api/marketplace/listings
+app.get('/api/marketplace/listings', async (req, res) => {
+  try {
+    const marketplace = new ethers.Contract(
+      process.env.MARKETPLACE_ADDRESS,
+      MarketplaceABI,
+      provider
+    );
+    
+    const listings = [];
+    let listingId = 0;
+    
+    while (listings.length < 50) {
+      try {
+        const listing = await marketplace.listings(listingId);
+        
+        if (listing.isActive) {
+          listings.push({
+            listingId,
+            seller: listing.seller,
+            fractionToken:

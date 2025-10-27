@@ -1,0 +1,493 @@
+## 📋 Pre-Deployment Checklist
+
+### 1. Smart Contract Testing
+
+#### Unit Tests
+```bash
+# Install testing dependencies
+npm install --save-dev @nomicfoundation/hardhat-chai-matchers chai
+
+# Run all tests
+npx hardhat test
+
+# Run with gas report
+npx hardhat test --gas-reporter
+
+# Run with coverage
+npx hardhat coverage
+```
+
+#### Test Cases yang Harus Lulus
+
+**✅ FractionalAssetNFT Tests:**
+- [ ] Create asset dengan semua parameter valid
+- [ ] Fractionalize asset menjadi ERC20 tokens
+- [ ] Hanya owner yang bisa fractionalize
+- [ ] Tidak bisa fractionalize dua kali
+- [ ] Verify asset owner functionality
+- [ ] Token URI returns correct metadata
+- [ ] Owner transfer works correctly
+
+**✅ FractionToken Tests:**
+- [ ] Buy fractions dengan payment yang benar
+- [ ] Sell fractions dan terima payment
+- [ ] Set fraction price (owner only)
+- [ ] Distribute revenue correctly
+- [ ] Claim revenue proporsional
+- [ ] Prevent double claim
+- [ ] Handle zero balance edge cases
+- [ ] Approve and transfer works
+
+**✅ FractionMarketplace Tests:**
+- [ ] Create listing dengan approval
+- [ ] Buy listing dengan payment benar
+- [ ] Cancel listing (seller only)
+- [ ] Platform fee calculation
+- [ ] Withdraw fees (owner only)
+- [ ] Set platform fee with limits
+- [ ] Handle inactive listings
+
+### 2. Security Audit
+
+**🔐 Security Checks:**
+- [ ] Reentrancy protection on all payable functions
+- [ ] Access control properly implemented
+- [ ] Integer overflow/underflow handled (Solidity 0.8+)
+- [ ] No front-running vulnerabilities
+- [ ] Safe math operations
+- [ ] Proper event emissions
+- [ ] No delegatecall vulnerabilities
+- [ ] Input validation on all functions
+
+**🛡️ Recommended Tools:**
+```bash
+# Install Slither (static analyzer)
+pip3 install slither-analyzer
+
+# Run Slither analysis
+slither .
+
+# Install Mythril (security analysis)
+pip3 install mythril
+
+# Run Mythril
+myth analyze contracts/FractionalAssetNFT.sol
+```
+
+### 3. Gas Optimization
+
+```bash
+# Check gas costs
+npx hardhat test --gas-reporter
+
+# Optimize: Use these patterns
+- Use uint256 instead of smaller uints (gas efficient)
+- Pack storage variables
+- Use memory instead of storage when possible
+- Avoid loops when possible
+- Use events for data storage when appropriate
+```
+
+**Target Gas Costs:**
+- Create Asset: < 200,000 gas
+- Fractionalize: < 3,000,000 gas (deploys new contract)
+- Buy Fractions: < 100,000 gas
+- Claim Revenue: < 80,000 gas
+- Create Listing: < 150,000 gas
+
+---
+
+## 🚀 Deployment Steps
+
+### Phase 1: BSC Testnet Deployment
+
+#### Step 1: Environment Setup
+```bash
+# 1. Get BNB Testnet tokens
+# Visit: https://testnet.bnbchain.org/faucet-smart
+
+# 2. Configure .env
+PRIVATE_KEY=your_private_key
+BSCSCAN_API_KEY=your_api_key
+PINATA_API_KEY=your_pinata_key
+PINATA_SECRET_KEY=your_pinata_secret
+
+# 3. Verify network config
+npx hardhat run scripts/verify-network.js --network bscTestnet
+```
+
+#### Step 2: Deploy Contracts
+```bash
+# Deploy to testnet
+npx hardhat run scripts/deploy.js --network bscTestnet
+
+# Save contract addresses
+# Output example:
+# FractionalAssetNFT: 0x123...
+# FractionMarketplace: 0x456...
+
+# Verify on BSCScan
+npx hardhat verify --network bscTestnet 0x123... [constructor args]
+```
+
+#### Step 3: Initial Configuration
+```javascript
+// scripts/configure.js
+const hre = require("hardhat");
+
+async function main() {
+  const assetNFTAddress = "0x123..."; // From deployment
+  const marketplaceAddress = "0x456...";
+  
+  const [deployer] = await hre.ethers.getSigners();
+  
+  const AssetNFT = await hre.ethers.getContractAt(
+    "FractionalAssetNFT", 
+    assetNFTAddress
+  );
+  
+  // Verify initial owner
+  console.log("Contract owner:", await AssetNFT.owner());
+  
+  // Set up verified asset owners (for testing)
+  const tx = await AssetNFT.verifyAssetOwner(deployer.address, true);
+  await tx.wait();
+  
+  console.log("✅ Configuration complete");
+}
+
+main().catch(console.error);
+```
+
+```bash
+npx hardhat run scripts/configure.js --network bscTestnet
+```
+
+#### Step 4: Create Test Asset
+```javascript
+// scripts/create-test-asset.js
+async function main() {
+  // Upload test image to IPFS
+  const imageURI = "ipfs://QmTest123...";
+  const docURI = "ipfs://QmDoc456...";
+  
+  const AssetNFT = await hre.ethers.getContractAt(
+    "FractionalAssetNFT",
+    "0x123..."
+  );
+  
+  const tx = await AssetNFT.createAsset(
+    "Test Apartment Jakarta",
+    "2BR apartment for testing",
+    "Jakarta Selatan",
+    "property",
+    hre.ethers.parseEther("1"), // 1 BNB test value
+    imageURI,
+    docURI
+  );
+  
+  const receipt = await tx.wait();
+  console.log("✅ Test asset created!");
+  console.log("Transaction:", receipt.hash);
+}
+```
+
+#### Step 5: Frontend Integration
+```javascript
+// Update src/contracts/config.js with deployed addresses
+export const CONTRACTS = {
+  ASSET_NFT: "0x123...", // Your deployed address
+  MARKETPLACE: "0x456..." // Your deployed address
+};
+
+export const NETWORK_CONFIG = {
+  chainId: '0x61', // BSC Testnet
+  // ... rest of config
+};
+```
+
+#### Step 6: Test Complete Flow
+```
+User Flow Testing:
+1. ✅ Connect wallet (MetaMask)
+2. ✅ Switch to BSC Testnet
+3. ✅ Create asset (verified owner)
+4. ✅ Fractionalize asset
+5. ✅ Set fraction price
+6. ✅ Buy fractions
+7. ✅ Distribute revenue (owner)
+8. ✅ Claim revenue (investor)
+9. ✅ Create marketplace listing
+10. ✅ Buy from marketplace
+11. ✅ View portfolio
+```
+
+---
+
+### Phase 2: BSC Mainnet Deployment
+
+⚠️ **CRITICAL: Only deploy to mainnet after thorough testing and audit**
+
+#### Pre-Mainnet Checklist
+- [ ] All testnet tests passing (minimum 2 weeks testing)
+- [ ] Security audit completed by professional auditor
+- [ ] Gas costs optimized
+- [ ] Legal framework in place
+- [ ] KYC/AML process defined
+- [ ] Insurance for assets
+- [ ] Customer support ready
+- [ ] Bug bounty program (optional but recommended)
+
+#### Mainnet Deployment
+```bash
+# 1. Final security check
+slither . --checklist
+
+# 2. Deploy to mainnet
+npx hardhat run scripts/deploy.js --network bscMainnet
+
+# 3. Verify immediately
+npx hardhat verify --network bscMainnet [CONTRACT_ADDRESS]
+
+# 4. Transfer ownership to multisig (CRITICAL)
+# Use Gnosis Safe or similar multisig wallet
+```
+
+#### Post-Deployment
+```bash
+# 1. Monitor transactions
+# Use BSCScan API or TheGraph
+
+# 2. Set up alerts
+# Monitor for unusual activity
+
+# 3. Prepare emergency pause if needed
+# Consider implementing Pausable pattern
+```
+
+---
+
+## 🔍 Testing Scenarios
+
+### Scenario 1: Happy Path
+```
+1. Owner creates asset (property worth 1000 BNB)
+2. Owner fractionalizes into 10,000 fractions
+3. Owner sets price: 0.1 BNB/fraction
+4. Investor A buys 100 fractions (10 BNB)
+5. Investor B buys 200 fractions (20 BNB)
+6. Owner distributes 10 BNB revenue
+7. Investor A claims: 10 * (100/10000) = 0.1 BNB ✅
+8. Investor B claims: 10 * (200/10000) = 0.2 BNB ✅
+```
+
+### Scenario 2: Marketplace Trading
+```
+1. Investor A creates listing: 50 fractions @ 0.12 BNB/fraction
+2. Marketplace approves transfer
+3. Investor C buys listing (pays 6 BNB)
+4. Platform fee deducted: 2.5% = 0.15 BNB
+5. Investor A receives: 5.85 BNB ✅
+6. Investor C now owns 50 fractions ✅
+```
+
+### Scenario 3: Edge Cases
+```
+Test these edge cases:
+- [ ] Buy 0 fractions (should revert)
+- [ ] Claim with 0 balance (should revert)
+- [ ] Fractionalize twice (should revert)
+- [ ] Buy with insufficient payment (should revert)
+- [ ] Non-owner tries to fractionalize (should revert)
+- [ ] Cancel others' listing (should revert)
+- [ ] Revenue distribution with 0 holders
+- [ ] Claim revenue twice
+- [ ] Overflow fraction price (max uint256)
+```
+
+---
+
+## 📊 Monitoring & Analytics
+
+### Key Metrics to Track
+
+**Smart Contract Metrics:**
+- Total assets created
+- Total fractions minted
+- Total trading volume
+- Platform fees collected
+- Active listings
+- Total revenue distributed
+- Number of unique holders
+
+**Performance Metrics:**
+- Average gas cost per transaction
+- Transaction success rate
+- Time to confirmation
+- Contract balance
+
+### Monitoring Setup
+
+```javascript
+// scripts/monitor.js
+const { ethers } = require("ethers");
+
+const provider = new ethers.JsonRpcProvider(
+  "https://bsc-dataseed.binance.org/"
+);
+
+const contract = new ethers.Contract(
+  contractAddress,
+  contractABI,
+  provider
+);
+
+// Listen to events
+contract.on("AssetCreated", (tokenId, owner, name, value) => {
+  console.log(`New asset: ${name} by ${owner}`);
+  // Send to analytics / Discord / Telegram
+});
+
+contract.on("FractionsPurchased", (buyer, amount, cost) => {
+  console.log(`Purchase: ${amount} fractions for ${cost}`);
+});
+```
+
+### Alert System
+```javascript
+// Set up alerts for critical events
+const ALERT_THRESHOLDS = {
+  largeTransaction: ethers.parseEther("10"), // Alert if > 10 BNB
+  failureRate: 0.05, // Alert if 5% tx fail
+  gasSpike: 1.5 // Alert if gas 50% higher than normal
+};
+
+// Integrate with Discord/Telegram for notifications
+```
+
+---
+
+## 🐛 Bug Bounty Program
+
+### Severity Levels
+
+**Critical (Up to $50,000)**
+- Direct theft of funds
+- Permanent freezing of funds
+- Unauthorized minting
+
+**High (Up to $10,000)**
+- Theft under specific conditions
+- Manipulation of pricing
+- Unauthorized state changes
+
+**Medium (Up to $2,000)**
+- Griefing attacks
+- Gas manipulation
+- Information disclosure
+
+**Low (Up to $500)**
+- Best practice violations
+- UI inconsistencies
+
+---
+
+## 📞 Emergency Procedures
+
+### Emergency Contacts
+```
+Smart Contract Issues: emergency@assetfract.io
+Security Vulnerabilities: security@assetfract.io
+General Support: support@assetfract.io
+
+Multisig Signers:
+- Signer 1: [Contact]
+- Signer 2: [Contact]
+- Signer 3: [Contact]
+```
+
+### Emergency Actions
+
+**If Critical Vulnerability Found:**
+1. ⏸️ Pause platform immediately (if pausable)
+2. 📢 Notify all users via all channels
+3. 🔧 Deploy fix to testnet
+4. 🧪 Test thoroughly
+5. 📝 Prepare upgrade/migration plan
+6. ✅ Execute with multisig approval
+
+**Upgrade Process:**
+```bash
+# If using upgradeable contracts (OpenZeppelin)
+npx hardhat run scripts/upgrade.js --network bscMainnet
+
+# If not upgradeable, need migration:
+# 1. Deploy new contract
+# 2. Migrate state (if possible)
+# 3. Notify users to move assets
+```
+
+---
+
+## ✅ Final Pre-Launch Checklist
+
+### Technical
+- [ ] All smart contracts deployed and verified
+- [ ] Frontend connected to correct addresses
+- [ ] IPFS integration working
+- [ ] Wallet connection tested (MetaMask, Trust Wallet)
+- [ ] All user flows tested end-to-end
+- [ ] Gas costs acceptable
+- [ ] Error handling comprehensive
+- [ ] Loading states implemented
+
+### Legal & Compliance
+- [ ] Terms of Service drafted
+- [ ] Privacy Policy published
+- [ ] KYC/AML procedures (if required)
+- [ ] Legal entity registered
+- [ ] Asset verification process defined
+- [ ] Dispute resolution process
+
+### Business
+- [ ] First 5-10 assets ready to list
+- [ ] Marketing materials prepared
+- [ ] Social media accounts set up
+- [ ] Community management plan
+- [ ] Customer support system
+- [ ] Fee structure finalized
+- [ ] Partnership agreements signed
+
+### Security
+- [ ] Smart contract audit completed
+- [ ] Penetration testing done
+- [ ] Bug bounty program live
+- [ ] Insurance obtained
+- [ ] Emergency procedures documented
+- [ ] Multisig wallet set up
+- [ ] Team training completed
+
+---
+
+## 🎉 Go Live!
+
+Setelah semua checklist selesai:
+
+```bash
+# 1. Deploy to mainnet
+npm run deploy:mainnet
+
+# 2. Announce launch
+# Social media, press release, etc.
+
+# 3. Monitor closely
+# First 48 hours critical
+
+# 4. Gather feedback
+# Iterate based on user experience
+
+# 5. Scale gradually
+# Don't rush, ensure stability first
+```
+
+**Good luck! 🚀 Build something amazing! 💎**

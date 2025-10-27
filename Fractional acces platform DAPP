@@ -1,0 +1,389 @@
+import React, { useState, useEffect } from 'react';
+import { Wallet, Building2, Car, Palette, TrendingUp, Users, DollarSign, Plus } from 'lucide-react';
+
+const FractionalAssetPlatform = () => {
+  const [account, setAccount] = useState('');
+  const [isConnected, setIsConnected] = useState(false);
+  const [activeTab, setActiveTab] = useState('marketplace');
+  const [assets, setAssets] = useState([]);
+  const [myAssets, setMyAssets] = useState([]);
+
+  // Mock data for demo
+  const mockAssets = [
+    {
+      id: 1,
+      name: "Apartemen Sudirman Suites",
+      type: "property",
+      location: "Jakarta Selatan, Indonesia",
+      totalValue: 2500000000, // IDR
+      totalFractions: 10000,
+      fractionPrice: 250000,
+      availableFractions: 6500,
+      soldPercentage: 35,
+      monthlyRevenue: 15000000,
+      image: "🏢",
+      description: "Apartemen mewah 2 kamar di pusat Jakarta",
+      owner: "0x742d...3f4a"
+    },
+    {
+      id: 2,
+      name: "Toyota Alphard 2023",
+      type: "vehicle",
+      location: "Surabaya, Indonesia",
+      totalValue: 1200000000,
+      totalFractions: 5000,
+      fractionPrice: 240000,
+      availableFractions: 3200,
+      soldPercentage: 36,
+      monthlyRevenue: 8000000,
+      image: "🚗",
+      description: "Kendaraan rental premium untuk wedding & corporate",
+      owner: "0x8a3c...7d2b"
+    },
+    {
+      id: 3,
+      name: "Lukisan 'Pemandangan Bali'",
+      type: "art",
+      location: "Denpasar, Bali",
+      totalValue: 500000000,
+      totalFractions: 2000,
+      fractionPrice: 250000,
+      availableFractions: 1500,
+      soldPercentage: 25,
+      monthlyRevenue: 3000000,
+      image: "🎨",
+      description: "Karya seni dari pelukis terkenal Indonesia",
+      owner: "0x5f1a...9c8e"
+    },
+    {
+      id: 4,
+      name: "Ruko Pasar Minggu",
+      type: "property",
+      location: "Jakarta Selatan, Indonesia",
+      totalValue: 3500000000,
+      totalFractions: 15000,
+      fractionPrice: 233333,
+      availableFractions: 10200,
+      soldPercentage: 32,
+      monthlyRevenue: 25000000,
+      image: "🏬",
+      description: "Ruko 3 lantai di area strategis untuk bisnis retail",
+      owner: "0x2d7f...4b1c"
+    }
+  ];
+
+  useEffect(() => {
+    setAssets(mockAssets);
+    checkConnection();
+  }, []);
+
+  const checkConnection = async () => {
+    if (typeof window.ethereum !== 'undefined') {
+      try {
+        const accounts = await window.ethereum.request({ method: 'eth_accounts' });
+        if (accounts.length > 0) {
+          setAccount(accounts[0]);
+          setIsConnected(true);
+        }
+      } catch (error) {
+        console.log('Not connected');
+      }
+    }
+  };
+
+  const connectWallet = async () => {
+    if (typeof window.ethereum !== 'undefined') {
+      try {
+        const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
+        setAccount(accounts[0]);
+        setIsConnected(true);
+      } catch (error) {
+        alert('Gagal connect wallet: ' + error.message);
+      }
+    } else {
+      alert('Silakan install MetaMask terlebih dahulu!');
+    }
+  };
+
+  const formatIDR = (amount) => {
+    return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(amount);
+  };
+
+  const getAssetIcon = (type) => {
+    switch(type) {
+      case 'property': return <Building2 className="w-6 h-6" />;
+      case 'vehicle': return <Car className="w-6 h-6" />;
+      case 'art': return <Palette className="w-6 h-6" />;
+      default: return <Building2 className="w-6 h-6" />;
+    }
+  };
+
+  const AssetCard = ({ asset }) => (
+    <div className="bg-white rounded-xl shadow-lg overflow-hidden hover:shadow-xl transition-shadow">
+      <div className="h-48 bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-8xl">
+        {asset.image}
+      </div>
+      <div className="p-6">
+        <div className="flex items-center gap-2 mb-2">
+          {getAssetIcon(asset.type)}
+          <span className="text-xs font-semibold text-gray-500 uppercase">{asset.type}</span>
+        </div>
+        <h3 className="text-xl font-bold mb-2">{asset.name}</h3>
+        <p className="text-sm text-gray-600 mb-4">{asset.location}</p>
+        <p className="text-sm text-gray-700 mb-4">{asset.description}</p>
+        
+        <div className="grid grid-cols-2 gap-4 mb-4">
+          <div>
+            <div className="text-xs text-gray-500">Total Value</div>
+            <div className="font-bold text-sm">{formatIDR(asset.totalValue)}</div>
+          </div>
+          <div>
+            <div className="text-xs text-gray-500">Harga/Fraksi</div>
+            <div className="font-bold text-sm">{formatIDR(asset.fractionPrice)}</div>
+          </div>
+          <div>
+            <div className="text-xs text-gray-500">Revenue/Bulan</div>
+            <div className="font-bold text-sm text-green-600">{formatIDR(asset.monthlyRevenue)}</div>
+          </div>
+          <div>
+            <div className="text-xs text-gray-500">Tersedia</div>
+            <div className="font-bold text-sm">{asset.availableFractions.toLocaleString()} fraksi</div>
+          </div>
+        </div>
+
+        <div className="mb-4">
+          <div className="flex justify-between text-xs mb-1">
+            <span>Terjual</span>
+            <span className="font-semibold">{asset.soldPercentage}%</span>
+          </div>
+          <div className="w-full bg-gray-200 rounded-full h-2">
+            <div 
+              className="bg-gradient-to-r from-green-400 to-blue-500 h-2 rounded-full"
+              style={{ width: `${asset.soldPercentage}%` }}
+            ></div>
+          </div>
+        </div>
+
+        <button 
+          onClick={() => alert(`Beli fraksi untuk ${asset.name}\n\nFitur ini akan terhubung ke smart contract.`)}
+          className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 rounded-lg transition-colors"
+        >
+          Beli Fraksi
+        </button>
+      </div>
+    </div>
+  );
+
+  const CreateAssetForm = () => (
+    <div className="bg-white rounded-xl shadow-lg p-8 max-w-2xl mx-auto">
+      <h2 className="text-2xl font-bold mb-6">Tokenisasi Aset Baru</h2>
+      <form className="space-y-4">
+        <div>
+          <label className="block text-sm font-semibold mb-2">Nama Aset</label>
+          <input type="text" className="w-full border border-gray-300 rounded-lg p-3" placeholder="e.g., Apartemen Sudirman" />
+        </div>
+        
+        <div>
+          <label className="block text-sm font-semibold mb-2">Tipe Aset</label>
+          <select className="w-full border border-gray-300 rounded-lg p-3">
+            <option>Properti</option>
+            <option>Kendaraan</option>
+            <option>Karya Seni</option>
+            <option>Lainnya</option>
+          </select>
+        </div>
+
+        <div>
+          <label className="block text-sm font-semibold mb-2">Lokasi</label>
+          <input type="text" className="w-full border border-gray-300 rounded-lg p-3" placeholder="Kota, Provinsi" />
+        </div>
+
+        <div>
+          <label className="block text-sm font-semibold mb-2">Deskripsi</label>
+          <textarea className="w-full border border-gray-300 rounded-lg p-3" rows="3" placeholder="Deskripsikan aset Anda..."></textarea>
+        </div>
+
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="block text-sm font-semibold mb-2">Total Nilai (IDR)</label>
+            <input type="number" className="w-full border border-gray-300 rounded-lg p-3" placeholder="1000000000" />
+          </div>
+          <div>
+            <label className="block text-sm font-semibold mb-2">Jumlah Fraksi</label>
+            <input type="number" className="w-full border border-gray-300 rounded-lg p-3" placeholder="10000" />
+          </div>
+        </div>
+
+        <div>
+          <label className="block text-sm font-semibold mb-2">Upload Foto Aset</label>
+          <input type="file" className="w-full border border-gray-300 rounded-lg p-3" />
+        </div>
+
+        <div>
+          <label className="block text-sm font-semibold mb-2">Upload Dokumen Legal (PDF)</label>
+          <input type="file" className="w-full border border-gray-300 rounded-lg p-3" accept=".pdf" />
+          <p className="text-xs text-gray-500 mt-1">Sertifikat, akta, atau dokumen kepemilikan</p>
+        </div>
+
+        <button 
+          type="button"
+          onClick={() => alert('Fitur ini akan meng-upload ke IPFS dan membuat NFT di blockchain')}
+          className="w-full bg-purple-600 hover:bg-purple-700 text-white font-semibold py-4 rounded-lg transition-colors"
+        >
+          Tokenisasi Aset
+        </button>
+      </form>
+    </div>
+  );
+
+  const StatsCard = ({ icon, label, value, color }) => (
+    <div className={`bg-gradient-to-br ${color} rounded-xl p-6 text-white`}>
+      <div className="flex items-center justify-between mb-2">
+        {icon}
+        <div className="text-3xl font-bold">{value}</div>
+      </div>
+      <div className="text-sm opacity-90">{label}</div>
+    </div>
+  );
+
+  return (
+    <div className="min-h-screen bg-gray-50">
+      {/* Header */}
+      <header className="bg-white shadow-sm sticky top-0 z-50">
+        <div className="max-w-7xl mx-auto px-4 py-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-purple-600 rounded-lg flex items-center justify-center">
+                <Building2 className="w-6 h-6 text-white" />
+              </div>
+              <div>
+                <h1 className="text-xl font-bold">AssetFract</h1>
+                <p className="text-xs text-gray-500">Fractional Ownership Platform</p>
+              </div>
+            </div>
+            
+            <button 
+              onClick={connectWallet}
+              className={`flex items-center gap-2 px-6 py-3 rounded-lg font-semibold transition-colors ${
+                isConnected 
+                  ? 'bg-green-100 text-green-700' 
+                  : 'bg-blue-600 hover:bg-blue-700 text-white'
+              }`}
+            >
+              <Wallet className="w-5 h-5" />
+              {isConnected ? `${account.slice(0, 6)}...${account.slice(-4)}` : 'Connect Wallet'}
+            </button>
+          </div>
+        </div>
+      </header>
+
+      {/* Main Content */}
+      <main className="max-w-7xl mx-auto px-4 py-8">
+        {/* Stats Overview */}
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+          <StatsCard 
+            icon={<Building2 className="w-8 h-8" />}
+            label="Total Aset"
+            value="12"
+            color="from-blue-500 to-blue-600"
+          />
+          <StatsCard 
+            icon={<Users className="w-8 h-8" />}
+            label="Total Investor"
+            value="847"
+            color="from-purple-500 to-purple-600"
+          />
+          <StatsCard 
+            icon={<DollarSign className="w-8 h-8" />}
+            label="Total Value"
+            value="15.2M"
+            color="from-green-500 to-green-600"
+          />
+          <StatsCard 
+            icon={<TrendingUp className="w-8 h-8" />}
+            label="Avg ROI"
+            value="8.5%"
+            color="from-orange-500 to-orange-600"
+          />
+        </div>
+
+        {/* Navigation Tabs */}
+        <div className="flex gap-4 mb-8 bg-white rounded-lg p-2 shadow">
+          <button 
+            onClick={() => setActiveTab('marketplace')}
+            className={`flex-1 py-3 px-6 rounded-lg font-semibold transition-colors ${
+              activeTab === 'marketplace' 
+                ? 'bg-blue-600 text-white' 
+                : 'text-gray-600 hover:bg-gray-100'
+            }`}
+          >
+            Marketplace
+          </button>
+          <button 
+            onClick={() => setActiveTab('myassets')}
+            className={`flex-1 py-3 px-6 rounded-lg font-semibold transition-colors ${
+              activeTab === 'myassets' 
+                ? 'bg-blue-600 text-white' 
+                : 'text-gray-600 hover:bg-gray-100'
+            }`}
+          >
+            Portofolio Saya
+          </button>
+          <button 
+            onClick={() => setActiveTab('create')}
+            className={`flex-1 py-3 px-6 rounded-lg font-semibold transition-colors flex items-center justify-center gap-2 ${
+              activeTab === 'create' 
+                ? 'bg-purple-600 text-white' 
+                : 'text-gray-600 hover:bg-gray-100'
+            }`}
+          >
+            <Plus className="w-5 h-5" />
+            Tokenisasi Aset
+          </button>
+        </div>
+
+        {/* Content Area */}
+        {activeTab === 'marketplace' && (
+          <div>
+            <div className="mb-6">
+              <h2 className="text-2xl font-bold mb-2">Aset Tersedia</h2>
+              <p className="text-gray-600">Investasi dalam aset fisik dengan kepemilikan fraksional</p>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {assets.map(asset => (
+                <AssetCard key={asset.id} asset={asset} />
+              ))}
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'myassets' && (
+          <div className="bg-white rounded-xl shadow-lg p-8 text-center">
+            <Building2 className="w-16 h-16 mx-auto mb-4 text-gray-400" />
+            <h3 className="text-xl font-bold mb-2">Belum Ada Investasi</h3>
+            <p className="text-gray-600 mb-6">Mulai berinvestasi dalam aset fraksional untuk melihat portofolio Anda di sini</p>
+            <button 
+              onClick={() => setActiveTab('marketplace')}
+              className="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-8 py-3 rounded-lg transition-colors"
+            >
+              Lihat Marketplace
+            </button>
+          </div>
+        )}
+
+        {activeTab === 'create' && <CreateAssetForm />}
+      </main>
+
+      {/* Footer */}
+      <footer className="bg-white border-t mt-16 py-8">
+        <div className="max-w-7xl mx-auto px-4 text-center text-gray-600">
+          <p className="text-sm">© 2025 AssetFract - Platform Fractional Ownership di BNB Chain</p>
+          <p className="text-xs mt-2">Smart Contract: 0x742d35Cc6634C0532925a3b844C173eAc7096F4c</p>
+          <p className="text-xs text-gray-400 mt-1">Powered by BNB Smart Chain</p>
+        </div>
+      </footer>
+    </div>
+  );
+};
+
+export default FractionalAssetPlatform;

@@ -1,0 +1,438 @@
+// Example: AssetDetailsPage.jsx
+// Contoh implementasi lengkap untuk halaman detail aset
+
+import React, { useState, useEffect } from 'react';
+import { useParams } from 'react-router-dom';
+import { 
+  getAssetDetails, 
+  buyFractions, 
+  claimRevenue,
+  getClaimableRevenue,
+  getFractionBalance,
+  getAssetStats,
+  connectWallet,
+  formatBNB,
+  formatIDR
+} from './contractUtils';
+import { ToastContainer } from 'react-toastify';
+import 'react-toastify/dist/ReactToastify.css';
+
+const AssetDetailsPage = () => {
+  const { tokenId } = useParams();
+  const [asset, setAsset] = useState(null);
+  const [stats, setStats] = useState(null);
+  const [userBalance, setUserBalance] = useState('0');
+  const [claimable, setClaimable] = useState('0');
+  const [account, setAccount] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [buyAmount, setBuyAmount] = useState('');
+  const [processing, setProcessing] = useState(false);
+
+  useEffect(() => {
+    loadAssetData();
+    checkWalletConnection();
+  }, [tokenId]);
+
+  const checkWalletConnection = async () => {
+    try {
+      if (typeof window.ethereum !== 'undefined') {
+        const accounts = await window.ethereum.request({ method: 'eth_accounts' });
+        if (accounts.length > 0) {
+          setAccount(accounts[0]);
+          loadUserData(accounts[0]);
+        }
+      }
+    } catch (error) {
+      console.error('Check wallet error:', error);
+    }
+  };
+
+  const loadAssetData = async () => {
+    setLoading(true);
+    try {
+      const assetData = await getAssetDetails(tokenId);
+      setAsset(assetData);
+
+      if (assetData?.fractionTokenAddress) {
+        const statsData = await getAssetStats(assetData.fractionTokenAddress);
+        setStats(statsData);
+      }
+    } catch (error) {
+      console.error('Load asset error:', error);
+    }
+    setLoading(false);
+  };
+
+  const loadUserData = async (userAddress) => {
+    if (!asset?.fractionTokenAddress) return;
+
+    try {
+      const [balance, claimableAmount] = await Promise.all([
+        getFractionBalance(asset.fractionTokenAddress, userAddress),
+        getClaimableRevenue(asset.fractionTokenAddress, userAddress)
+      ]);
+
+      setUserBalance(balance);
+      setClaimable(claimableAmount);
+    } catch (error) {
+      console.error('Load user data error:', error);
+    }
+  };
+
+  const handleConnect = async () => {
+    const address = await connectWallet();
+    if (address) {
+      setAccount(address);
+      loadUserData(address);
+    }
+  };
+
+  const handleBuyFractions = async () => {
+    if (!buyAmount || parseFloat(buyAmount) <= 0) {
+      alert('Masukkan jumlah fraksi yang valid');
+      return;
+    }
+
+    setProcessing(true);
+    try {
+      const result = await buyFractions(
+        asset.fractionTokenAddress, 
+        buyAmount
+      );
+
+      if (result.success) {
+        setBuyAmount('');
+        loadAssetData();
+        loadUserData(account);
+      }
+    } catch (error) {
+      console.error('Buy error:', error);
+    }
+    setProcessing(false);
+  };
+
+  const handleClaimRevenue = async () => {
+    if (parseFloat(claimable) <= 0) {
+      alert('Tidak ada revenue yang bisa di-claim');
+      return;
+    }
+
+    setProcessing(true);
+    try {
+      const result = await claimRevenue(asset.fractionTokenAddress);
+      
+      if (result.success) {
+        loadUserData(account);
+      }
+    } catch (error) {
+      console.error('Claim error:', error);
+    }
+    setProcessing(false);
+  };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
+          <p className="mt-4 text-gray-600">Loading asset data...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!asset) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <h2 className="text-2xl font-bold text-gray-800">Asset Not Found</h2>
+          <p className="text-gray-600 mt-2">Asset dengan ID {tokenId} tidak ditemukan</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-gray-50 py-8">
+      <ToastContainer position="top-right" autoClose={5000} />
+      
+      <div className="max-w-6xl mx-auto px-4">
+        {/* Header */}
+        <div className="bg-white rounded-xl shadow-lg overflow-hidden mb-6">
+          <div className="h-64 bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center">
+            <div className="text-9xl">🏢</div>
+          </div>
+          
+          <div className="p-8">
+            <div className="flex justify-between items-start mb-4">
+              <div>
+                <span className="text-sm font-semibold text-gray-500 uppercase">{asset.assetType}</span>
+                <h1 className="text-3xl font-bold mt-1">{asset.name}</h1>
+                <p className="text-gray-600 mt-2">📍 {asset.location}</p>
+              </div>
+              
+              {!account ? (
+                <button 
+                  onClick={handleConnect}
+                  className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg font-semibold"
+                >
+                  Connect Wallet
+                </button>
+              ) : (
+                <div className="text-right">
+                  <div className="text-sm text-gray-500">Connected</div>
+                  <div className="font-mono text-sm">{account.slice(0, 6)}...{account.slice(-4)}</div>
+                </div>
+              )}
+            </div>
+
+            <p className="text-gray-700 leading-relaxed">{asset.description}</p>
+
+            {/* Key Stats */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6">
+              <div className="bg-gray-50 p-4 rounded-lg">
+                <div className="text-xs text-gray-500 mb-1">Total Value</div>
+                <div className="font-bold text-lg">{formatBNB(asset.totalValue)}</div>
+              </div>
+              
+              <div className="bg-gray-50 p-4 rounded-lg">
+                <div className="text-xs text-gray-500 mb-1">Total Fractions</div>
+                <div className="font-bold text-lg">{parseInt(asset.totalFractions).toLocaleString()}</div>
+              </div>
+              
+              {stats && (
+                <>
+                  <div className="bg-gray-50 p-4 rounded-lg">
+                    <div className="text-xs text-gray-500 mb-1">Price/Fraction</div>
+                    <div className="font-bold text-lg">{formatBNB(stats.fractionPrice)}</div>
+                  </div>
+                  
+                  <div className="bg-green-50 p-4 rounded-lg">
+                    <div className="text-xs text-green-700 mb-1">Total Revenue</div>
+                    <div className="font-bold text-lg text-green-600">{formatBNB(stats.totalRevenue)}</div>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+
+        <div className="grid md:grid-cols-3 gap-6">
+          {/* Buy Fractions */}
+          <div className="md:col-span-2 bg-white rounded-xl shadow-lg p-6">
+            <h2 className="text-xl font-bold mb-4">Beli Fraksi</h2>
+            
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-semibold mb-2">Jumlah Fraksi</label>
+                <input 
+                  type="number"
+                  value={buyAmount}
+                  onChange={(e) => setBuyAmount(e.target.value)}
+                  placeholder="e.g., 100"
+                  className="w-full border border-gray-300 rounded-lg p-3 text-lg"
+                  disabled={processing}
+                />
+              </div>
+
+              {buyAmount && stats && (
+                <div className="bg-blue-50 p-4 rounded-lg">
+                  <div className="flex justify-between mb-2">
+                    <span className="text-sm text-gray-700">Harga per fraksi:</span>
+                    <span className="font-semibold">{formatBNB(stats.fractionPrice)}</span>
+                  </div>
+                  <div className="flex justify-between border-t border-blue-200 pt-2">
+                    <span className="font-semibold">Total:</span>
+                    <span className="font-bold text-lg text-blue-600">
+                      {formatBNB((parseFloat(stats.fractionPrice) * parseFloat(buyAmount)).toFixed(4))}
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              <button
+                onClick={handleBuyFractions}
+                disabled={!account || processing || !buyAmount}
+                className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed text-white font-semibold py-4 rounded-lg transition-colors"
+              >
+                {processing ? 'Processing...' : 'Beli Sekarang'}
+              </button>
+            </div>
+
+            {/* Documents */}
+            <div className="mt-6 pt-6 border-t">
+              <h3 className="font-semibold mb-3">Dokumen Legal</h3>
+              <a 
+                href={asset.documentURI}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-blue-600 hover:text-blue-800 underline text-sm"
+              >
+                📄 Lihat Dokumen di IPFS →
+              </a>
+            </div>
+          </div>
+
+          {/* User Portfolio */}
+          <div className="space-y-6">
+            {account && (
+              <>
+                <div className="bg-white rounded-xl shadow-lg p-6">
+                  <h3 className="font-bold mb-4">Kepemilikan Anda</h3>
+                  
+                  <div className="space-y-3">
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm text-gray-600">Fraksi Dimiliki:</span>
+                      <span className="font-bold text-lg">{parseFloat(userBalance).toFixed(2)}</span>
+                    </div>
+                    
+                    {stats && (
+                      <div className="flex justify-between items-center">
+                        <span className="text-sm text-gray-600">% Kepemilikan:</span>
+                        <span className="font-bold">
+                          {((parseFloat(userBalance) / parseFloat(stats.totalSupply)) * 100).toFixed(2)}%
+                        </span>
+                      </div>
+                    )}
+                    
+                    <div className="flex justify-between items-center pt-3 border-t">
+                      <span className="text-sm text-gray-600">Nilai Investasi:</span>
+                      <span className="font-bold text-green-600">
+                        {stats && formatBNB((parseFloat(userBalance) * parseFloat(stats.fractionPrice)).toFixed(4))}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="bg-gradient-to-br from-green-500 to-emerald-600 rounded-xl shadow-lg p-6 text-white">
+                  <h3 className="font-bold mb-4">Revenue Claimable</h3>
+                  
+                  <div className="text-3xl font-bold mb-4">
+                    {formatBNB(claimable)}
+                  </div>
+                  
+                  <button
+                    onClick={handleClaimRevenue}
+                    disabled={processing || parseFloat(claimable) <= 0}
+                    className="w-full bg-white text-green-600 hover:bg-gray-50 disabled:bg-gray-200 disabled:text-gray-400 disabled:cursor-not-allowed font-semibold py-3 rounded-lg transition-colors"
+                  >
+                    {processing ? 'Processing...' : 'Claim Revenue'}
+                  </button>
+                  
+                  <p className="text-xs mt-3 opacity-90">
+                    Revenue dibagikan dari hasil sewa/profit aset secara proporsional
+                  </p>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+
+        {/* Asset Stats */}
+        {stats && (
+          <div className="mt-6 bg-white rounded-xl shadow-lg p-6">
+            <h2 className="text-xl font-bold mb-4">Statistik Aset</h2>
+            
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+              <div>
+                <div className="text-xs text-gray-500 mb-1">Market Cap</div>
+                <div className="font-bold">{formatBNB(stats.marketCap)}</div>
+              </div>
+              
+              <div>
+                <div className="text-xs text-gray-500 mb-1">Total Supply</div>
+                <div className="font-bold">{parseFloat(stats.totalSupply).toFixed(0)}</div>
+              </div>
+              
+              <div>
+                <div className="text-xs text-gray-500 mb-1">Fraction Price</div>
+                <div className="font-bold">{formatBNB(stats.fractionPrice)}</div>
+              </div>
+              
+              <div>
+                <div className="text-xs text-gray-500 mb-1">Total Revenue</div>
+                <div className="font-bold text-green-600">{formatBNB(stats.totalRevenue)}</div>
+              </div>
+              
+              <div>
+                <div className="text-xs text-gray-500 mb-1">Avg Revenue/Frac</div>
+                <div className="font-bold">{formatBNB(stats.avgRevenuePerFraction)}</div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Transaction History / Activity Feed */}
+        <div className="mt-6 bg-white rounded-xl shadow-lg p-6">
+          <h2 className="text-xl font-bold mb-4">Aktivitas Terkini</h2>
+          
+          <div className="space-y-3">
+            <ActivityItem 
+              type="purchase"
+              user="0x742d...3f4a"
+              amount="250"
+              time="2 jam yang lalu"
+            />
+            <ActivityItem 
+              type="revenue"
+              amount="0.5 BNB"
+              time="1 hari yang lalu"
+            />
+            <ActivityItem 
+              type="purchase"
+              user="0x8a3c...7d2b"
+              amount="100"
+              time="3 hari yang lalu"
+            />
+          </div>
+        </div>
+
+        {/* Info Section */}
+        <div className="mt-6 bg-blue-50 rounded-xl p-6">
+          <h3 className="font-bold text-blue-900 mb-2">ℹ️ Cara Kerja Fractional Ownership</h3>
+          <ul className="space-y-2 text-sm text-blue-800">
+            <li>• <strong>Beli Fraksi:</strong> Beli sebagian kepemilikan aset sesuai budget Anda</li>
+            <li>• <strong>Terima Revenue:</strong> Dapatkan bagian dari hasil sewa/profit secara otomatis</li>
+            <li>• <strong>Jual Kapan Saja:</strong> Likuiditas tinggi melalui marketplace</li>
+            <li>• <strong>Transparansi Penuh:</strong> Semua transaksi tercatat di blockchain</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// Activity Item Component
+const ActivityItem = ({ type, user, amount, time }) => {
+  const getIcon = () => {
+    switch(type) {
+      case 'purchase': return '🛒';
+      case 'revenue': return '💰';
+      case 'sale': return '💸';
+      default: return '📝';
+    }
+  };
+
+  const getLabel = () => {
+    switch(type) {
+      case 'purchase': return `${user} membeli ${amount} fraksi`;
+      case 'revenue': return `Revenue sebesar ${amount} didistribusikan`;
+      case 'sale': return `${user} menjual ${amount} fraksi`;
+      default: return 'Aktivitas';
+    }
+  };
+
+  return (
+    <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors">
+      <div className="flex items-center gap-3">
+        <span className="text-2xl">{getIcon()}</span>
+        <div>
+          <div className="text-sm font-medium">{getLabel()}</div>
+          <div className="text-xs text-gray-500">{time}</div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default AssetDetailsPage;
